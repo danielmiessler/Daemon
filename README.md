@@ -7,7 +7,7 @@ An open-source personal API framework.
 
 # `Daemon`
 
-![Static Badge](https://img.shields.io/badge/mission-share%20%20yourself%20about%20with%20humanity-brightgreen)
+![Static Badge](https://img.shields.io/badge/mission-share%20yourself%20with%20humanity-brightgreen)
 <br />
 ![GitHub top language](https://img.shields.io/github/languages/top/danielmiessler/Daemon)
 ![GitHub last commit](https://img.shields.io/github/last-commit/danielmiessler/Daemon)
