@@ -17,7 +17,7 @@ An open-source personal API framework.
 <h4><code>Daemon</code> An open-sourced framework building personal APIs.</h4>
 </p>
 
-[Purpose](#purpose) • [Content](#content) • [How to Contribute](#how-to-contribute)
+[Purpose](#purpose) • [Content](#content) • [Next Stetps](#next-steps) • [How to Contribute](#how-to-contribute)
 
 </div>
 </div>
