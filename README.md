@@ -111,17 +111,12 @@ The website's dashboard fetches data from the MCP server at `mcp.daemon.danielmi
 
 If you want the full experience with a queryable MCP endpoint:
 
-1. The MCP server is a separate Cloudflare Worker that:
-   - Parses your `daemon.md` file
-   - Stores the data in Cloudflare KV
-   - Serves it via JSON-RPC (MCP protocol)
+The `mcp-worker/` directory contains a Cloudflare Worker that:
+- Fetches `daemon.md` from your deployed Pages site (5-minute edge cache)
+- Parses all sections and exposes them as 13 MCP tools
+- Serves JSON-RPC over HTTPS — no KV or additional infrastructure needed
 
-2. You'll need to:
-   - Create a Cloudflare Worker for your MCP endpoint
-   - Set up a KV namespace for data storage
-   - Update the dashboard component to point to your MCP URL
-
-3. The MCP server code and setup instructions will be documented separately.
+Full deployment instructions, including Claude Code integration: **[docs/mcp-setup.md](docs/mcp-setup.md)**
 
 **Note**: The static site works without the MCP component—you just won't have the live API functionality until you set up your own MCP server.
 

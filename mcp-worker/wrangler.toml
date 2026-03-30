@@ -1,0 +1,12 @@
+name = "daemon-mcp"          # rename to something like "yourname-daemon-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-08-20"
+workers_dev = true
+
+# Uncomment and update to add a custom domain (e.g. mcp.daemon.yourdomain.com)
+# routes must appear BEFORE any [section] headers — TOML parses them as part of
+# the section otherwise and wrangler will silently ignore them.
+# routes = [{ pattern = "mcp.daemon.yourdomain.com", custom_domain = true }]
+
+[observability]
+enabled = false
