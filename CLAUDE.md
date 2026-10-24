@@ -1,111 +1,33 @@
----
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+# Daemon
 
-Default to using Bun instead of Node.js.
+A personal "daemon": a VitePress dashboard plus a Cloudflare Worker that serves it,
+strips expired data at the edge, and aggregates a public activity feed. See README.md
+for the architecture (public framework repo + private instance repo).
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Bun automatically loads .env, so don't use dotenv.
+## Layout
 
-## APIs
+- `src/worker.ts` — Cloudflare Worker: `/daemon-data.json` (expired ephemera stripped),
+  `/feed.json` (KV-cached feed, refreshed by a 30-min cron), everything else from static assets
+- `cms/.vitepress/theme/` — custom VitePress theme (no default theme); the whole page is
+  `components/DaemonDashboard.vue`, which fetches `/daemon-data.json` at runtime
+- `instance-template/` — `DeployGate.ts` (pre-deploy safety gate) and `deploy.sh`, copied
+  into the user's private instance repo
+- `tests/` — `bun test` suites for the gate, the worker, and the hero state selector
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## Commands
 
-## Testing
+Use Bun for everything (`bun install`, `bun run <script>`, `bunx <tool>`).
 
-Use `bun test` to run tests.
+- `bun run dev` — local site (needs `cms/public/daemon-data.json`; copy the example)
+- `bun run build` — static build to `cms/.vitepress/dist`
+- `bun test` / `bun run typecheck`
+- `bunx wrangler deploy` — normally run via the instance's `deploy.sh`, never by hand with real data
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## Invariants
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
-
-## Frontend
-
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-
-// import .css files directly and it works
-import './index.css';
-
-import { createRoot } from "react-dom/client";
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.md`.
+- Never commit `cms/public/daemon-data.json` — it's personal data, injected at deploy time.
+- Nothing time-bound may be baked into the static build: the page renders only what the
+  Worker serves. Don't reintroduce a build-time import of `daemon-data.json`.
+- TTL rules are enforced in three places that must stay consistent: `DeployGate.ts`,
+  `stripEphemera` in the worker, and the client-side guards (`currentState.ts`, the dashboard).
+- The worker reads only its own assets, its own KV, and public URLs listed in the data file.

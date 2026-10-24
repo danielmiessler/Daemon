@@ -12,8 +12,8 @@
  *
  * Security invariant: this worker reads ONLY its own assets, its own KV, and
  * public URLs listed in the deployed daemon-data.json. It has no path to any
- * private data. The only secret is an optional X_BEARER_TOKEN for reading the
- * owner's own public tweets.
+ * private data. Its only secrets are optional read keys for the owner's own
+ * public posts: X_BEARER_TOKEN, BEEHIIV_API_KEY, APIFY_API_KEY.
  */
 
 export interface Env {
@@ -82,7 +82,8 @@ export function stripEphemera(data: Record<string, any>, nowMs = Date.now()): Re
   }
 
   if (d.location_meta && isExpired(d.location_meta.expires, nowMs)) {
-    d.current_location = d.location_default || d.current_location;
+    // No default to fall back to → drop the location rather than keep asserting an expired one
+    d.current_location = d.location_default || null;
     d.location_meta = null;
   }
 
@@ -95,12 +96,34 @@ export function stripEphemera(data: Record<string, any>, nowMs = Date.now()): Re
 function decodeEntities(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (m, hex) => codePoint(parseInt(hex, 16)) ?? m)
+    .replace(/&#(\d+);/g, (m, dec) => codePoint(Number(dec)) ?? m)
+    .replace(/&amp;/g, "&") // last, so "&amp;lt;" stays the literal text "&lt;"
     .trim();
+}
+
+function codePoint(n: number): string | null {
+  return Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : null;
+}
+
+/** Atom entries can carry several <link>s (replies, edit, enclosure); the post is rel="alternate" or rel-less. */
+function atomHref(block: string): string | null {
+  const links = block.match(/<link\b[^>]*\bhref=["'][^"']+["'][^>]*>/gi) ?? [];
+  const href = (l: string) => l.match(/\bhref=["']([^"']+)["']/i)?.[1] ?? null;
+  const post = links.find((l) => !/\brel=/i.test(l) || /\brel=["']alternate["']/i.test(l));
+  const chosen = post ?? links[0];
+  return chosen ? href(chosen) : null;
+}
+
+/** ISO string for a timestamp, or null if it doesn't parse — one bad item shouldn't sink its whole source. */
+function isoDate(v: string | number | Date | undefined | null): string | null {
+  if (v === undefined || v === null || v === "") return null;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
 function tag(block: string, name: string): string {
@@ -116,12 +139,11 @@ export function parseFeed(xml: string, sourceName: string, max: number): FeedIte
   for (const block of blocks.slice(0, max)) {
     const title = tag(block, "title");
     // Atom: <link href="..."/>; RSS: <link>...</link>
-    const atomLink = block.match(/<link[^>]*href="([^"]+)"[^>]*\/?>/i);
-    const url = atomLink ? decodeEntities(atomLink[1] ?? "") : tag(block, "link");
-    const date = tag(block, "pubDate") || tag(block, "published") || tag(block, "updated");
-    const parsed = Date.parse(date);
-    if (!title || !url || Number.isNaN(parsed)) continue;
-    items.push({ source: sourceName, type: "rss", title, url, date: new Date(parsed).toISOString() });
+    const atomLink = atomHref(block);
+    const url = atomLink ? decodeEntities(atomLink) : tag(block, "link");
+    const date = isoDate(tag(block, "pubDate") || tag(block, "published") || tag(block, "updated"));
+    if (!title || !url || !date) continue;
+    items.push({ source: sourceName, type: "rss", title, url, date });
   }
   return items;
 }
@@ -161,14 +183,18 @@ async function pollGithub(src: FeedSource): Promise<FeedItem[]> {
   const seen = new Set<string>();
   for (const ev of events) {
     const title = summarizeGithubEvent(ev);
-    if (!title || seen.has(title)) continue; // collapse consecutive pushes to same repo
-    seen.add(title);
+    const date = isoDate(ev.created_at);
+    if (!title || !date) continue;
+    // Events arrive newest-first, so this keeps only the latest push per repo
+    const key = ev.type === "PushEvent" ? `push:${ev.repo?.name}` : title;
+    if (seen.has(key)) continue;
+    seen.add(key);
     items.push({
       source: src.name,
       type: "github",
       title,
       url: `https://github.com/${ev.repo?.name ?? src.user}`,
-      date: new Date(ev.created_at).toISOString(),
+      date,
     });
     if (items.length >= (src.max ?? 6)) break;
   }
@@ -177,23 +203,30 @@ async function pollGithub(src: FeedSource): Promise<FeedItem[]> {
 
 async function pollX(src: FeedSource, token: string): Promise<FeedItem[]> {
   const res = await fetch(
-    `https://api.x.com/2/users/${src.user_id}/tweets?max_results=${Math.max(5, src.max ?? 8)}&tweet.fields=created_at&exclude=replies,retweets`,
+    // The API accepts max_results 5–100
+    `https://api.x.com/2/users/${src.user_id}/tweets?max_results=${Math.min(100, Math.max(5, src.max ?? 8))}&tweet.fields=created_at&exclude=replies,retweets`,
     { headers: { Authorization: `Bearer ${token}`, "User-Agent": FETCH_UA } }
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as any;
 
-  return ((body.data as any[]) || []).slice(0, src.max ?? 8).map((t) => {
-    // A bare t.co shortlink means an image/link-only tweet — don't headline a naked URL
-    const text = /^https:\/\/t\.co\/\w+$/.test(t.text.trim()) ? "Shared a link" : t.text;
-    return {
-      source: src.name,
-      type: "x",
-      title: text.length > 200 ? text.slice(0, 197) + "…" : text,
-      url: `https://x.com/${src.username}/status/${t.id}`,
-      date: new Date(t.created_at).toISOString(),
-    };
-  });
+  return ((body.data as any[]) || [])
+    .map((t) => {
+      const date = isoDate(t.created_at);
+      const raw = (t.text ?? "") as string;
+      if (!date || !raw.trim()) return null;
+      // A bare t.co shortlink means an image/link-only tweet — don't headline a naked URL
+      const text = /^https:\/\/t\.co\/\w+$/.test(raw.trim()) ? "Shared a link" : raw;
+      return {
+        source: src.name,
+        type: "x",
+        title: text.length > 200 ? text.slice(0, 197) + "…" : text,
+        url: `https://x.com/${src.username}/status/${t.id}`,
+        date,
+      } as FeedItem;
+    })
+    .filter((i): i is FeedItem => i !== null)
+    .slice(0, src.max ?? 8);
 }
 
 /** Beehiiv newsletters block feed scrapers; the official API is the reliable read path. */
@@ -205,13 +238,14 @@ async function pollBeehiiv(src: FeedSource, apiKey: string): Promise<FeedItem[]>
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as any;
 
-  return ((body.data as any[]) || []).map((p) => ({
-    source: src.name,
-    type: "rss",
-    title: p.title,
-    url: p.web_url,
-    date: new Date(p.publish_date * 1000).toISOString(),
-  }));
+  return ((body.data as any[]) || [])
+    .map((p) => {
+      // publish_date is epoch seconds; a null would otherwise become 1970
+      const date = typeof p.publish_date === "number" ? isoDate(p.publish_date * 1000) : null;
+      if (!date || !p.title || !p.web_url) return null;
+      return { source: src.name, type: "rss", title: p.title, url: p.web_url, date } as FeedItem;
+    })
+    .filter((i): i is FeedItem => i !== null);
 }
 
 /**
@@ -224,6 +258,9 @@ const LI_KEY = "feed:linkedin";
 // 24h cadence: the actor bills per scraped post (a capless run cost $1.58 on
 // 2026-07-21 — `maxPosts` is not a real input; `limitPerSource` is).
 const LI_STALE_MS = 24 * 60 * 60 * 1000;
+// After a failed run, wait this long before paying for another one (otherwise every 30-min cron retries)
+const LI_FAIL_KEY = "feed:linkedin:failed";
+const LI_RETRY_S = 6 * 60 * 60;
 
 function linkedinUrnDate(urn: string): string | null {
   const id = urn.split(":").pop() ?? "";
@@ -234,10 +271,11 @@ function linkedinUrnDate(urn: string): string | null {
 
 async function pollLinkedIn(src: FeedSource, apiKey: string): Promise<FeedItem[]> {
   const res = await fetch(
-    `https://api.apify.com/v2/acts/supreme_coder~linkedin-post/run-sync-get-dataset-items?token=${apiKey}`,
+    "https://api.apify.com/v2/acts/supreme_coder~linkedin-post/run-sync-get-dataset-items",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Header, not ?token= — query strings end up in logs
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ urls: [src.profile_url], limitPerSource: src.max ?? 8, deepScrape: false }),
     }
   );
@@ -272,7 +310,17 @@ async function linkedinItems(src: FeedSource, env: Env, allowSlow: boolean): Pro
     return parsed.items;
   }
   if (!env.APIFY_API_KEY) throw new Error("no APIFY_API_KEY secret configured");
-  const items = await pollLinkedIn(src, env.APIFY_API_KEY);
+  if (await env.FEED_KV.get(LI_FAIL_KEY)) {
+    if (parsed) return parsed.items; // stale beats nothing while backing off
+    throw new Error("last run failed; backing off before retrying");
+  }
+  let items: FeedItem[];
+  try {
+    items = await pollLinkedIn(src, env.APIFY_API_KEY);
+  } catch (err) {
+    await env.FEED_KV.put(LI_FAIL_KEY, new Date().toISOString(), { expirationTtl: LI_RETRY_S });
+    throw err;
+  }
   await env.FEED_KV.put(LI_KEY, JSON.stringify({ updated: new Date().toISOString(), items }));
   return items;
 }
@@ -311,8 +359,10 @@ export async function refreshFeed(env: Env, allowSlow = false): Promise<FeedPayl
   results.forEach((r, i) => {
     const name = sources[i]?.name ?? `source-${i}`;
     if (r.status === "fulfilled") {
-      items.push(...r.value.items);
-      report.push({ name, ok: true, count: r.value.items.length });
+      // Items become hrefs on the page — never let a feed hand us javascript: or data: URLs
+      const safe = r.value.items.filter((it) => /^https?:\/\//i.test(it.url));
+      items.push(...safe);
+      report.push({ name, ok: true, count: safe.length });
     } else {
       report.push({ name, ok: false, count: 0, error: String(r.reason?.message ?? r.reason) });
     }
@@ -323,6 +373,25 @@ export async function refreshFeed(env: Env, allowSlow = false): Promise<FeedPayl
 
   await env.FEED_KV.put(FEED_KEY, JSON.stringify(payload));
   return payload;
+}
+
+/**
+ * Request-path refresh, at most one at a time: without this, every request that
+ * sees a stale feed starts its own round of upstream API calls. KV is eventually
+ * consistent, so this is best-effort, but it collapses the burst. Returns null if
+ * another refresh already holds the lock.
+ */
+const LOCK_KEY = "feed:refreshing";
+const LOCK_TTL_S = 60; // KV's minimum TTL; also bounds a crashed refresh
+
+export async function refreshFeedOnce(env: Env): Promise<FeedPayload | null> {
+  if (await env.FEED_KV.get(LOCK_KEY)) return null;
+  await env.FEED_KV.put(LOCK_KEY, "1", { expirationTtl: LOCK_TTL_S });
+  try {
+    return await refreshFeed(env);
+  } finally {
+    await env.FEED_KV.delete(LOCK_KEY);
+  }
 }
 
 // ─── Handlers ───
@@ -346,12 +415,15 @@ export default {
     if (pathname === "/feed.json") {
       const cached = await env.FEED_KV.get(FEED_KEY);
       if (!cached) {
-        const fresh = await refreshFeed(env);
-        return new Response(JSON.stringify(fresh), { headers: JSON_HEADERS });
+        const fresh = await refreshFeedOnce(env);
+        if (fresh) return new Response(JSON.stringify(fresh), { headers: JSON_HEADERS });
+        // Another request is already building the first feed — answer empty, uncached
+        const empty: FeedPayload = { updated: new Date().toISOString(), items: [], sources: [] };
+        return new Response(JSON.stringify(empty), { headers: { ...JSON_HEADERS, "Cache-Control": "no-store" } });
       }
       const payload = JSON.parse(cached) as FeedPayload;
       if (Date.now() - Date.parse(payload.updated) > FEED_STALE_MS) {
-        ctx.waitUntil(refreshFeed(env)); // serve stale, refresh in background
+        ctx.waitUntil(refreshFeedOnce(env)); // serve stale, refresh in background
       }
       return new Response(cached, { headers: JSON_HEADERS });
     }

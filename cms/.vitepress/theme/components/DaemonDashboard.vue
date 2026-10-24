@@ -6,8 +6,10 @@
     <div class="d-aurora"><i class="au au-1"></i><i class="au au-2"></i><i class="au au-3"></i></div>
     <div class="d-grid-bg"></div>
 
+    <div v-if="dataState !== 'ready'" class="d-wait">{{ dataState === 'error' ? 'NO SIGNAL' : 'ACQUIRING SIGNAL…' }}</div>
+
     <!-- ═══ Command bar ═══ -->
-    <header class="cmd">
+    <header v-if="dataState === 'ready'" class="cmd">
       <div class="cmd-scan"></div>
       <div class="cmd-inner">
         <div class="cmd-ident">
@@ -20,7 +22,7 @@
           <span class="tele-cell"><span class="tele-k">UTC</span><span class="tele-v">{{ currentDateTime.slice(11, 19) }}</span></span>
           <span class="tele-cell"><span class="tele-k">SYNC</span><span class="tele-v">{{ formatDate(daemonData.last_updated) }}</span></span>
           <span class="tele-cell"><span class="tele-k">SECT</span><span class="tele-v">{{ sectionCount }}</span></span>
-          <span class="tele-cell tele-loc"><span class="tele-k">LOC</span><span class="tele-v">{{ daemonData.current_location }}</span></span>
+          <span v-if="visibleLocation" class="tele-cell tele-loc"><span class="tele-k">LOC</span><span class="tele-v">{{ visibleLocation }}</span></span>
         </div>
         <nav class="cmd-nav">
           <a href="#feed">FEED</a>
@@ -32,7 +34,7 @@
     </header>
 
     <!-- ═══ Identity band ═══ -->
-    <section class="ident boot" style="--i: 0">
+    <section v-if="dataState === 'ready'" class="ident boot" style="--i: 0">
       <div class="ident-left">
         <h1 class="ident-title">DAEMON</h1>
         <p class="ident-sub">A live, machine-readable broadcast of what {{ ownerName }} is doing, building, and thinking.</p>
@@ -48,7 +50,7 @@
     </section>
 
     <!-- ═══ Instrument grid ═══ -->
-    <main class="dash">
+    <main v-if="dataState === 'ready'" class="dash">
 
       <!-- Row A: feed + right rail -->
       <section class="panel p-feed boot" id="feed" style="--i: 1">
@@ -252,7 +254,7 @@
       </section>
     </main>
 
-    <footer class="d-foot">
+    <footer v-if="dataState === 'ready'" class="d-foot">
       <span>DAEMON://{{ ownerHandle }}</span>
       <span class="foot-sep">·</span>
       <span>{{ siteHost }}</span>
@@ -266,11 +268,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import daemonDataJson from '../../../public/daemon-data.json'
 import { selectHeroCurrentState } from '../currentState'
 
 const currentTime = ref(new Date())
-const daemonData = ref<any>(daemonDataJson)
+// No build-time import of daemon-data.json: anything baked into the static HTML or
+// bundle outlives its `expires`. The page renders only what the worker serves.
+const daemonData = ref<any>({})
+const dataState = ref<'loading' | 'ready' | 'error'>('loading')
 const feed = ref<any>(null)
 
 let timer: any = null
@@ -280,12 +284,19 @@ onMounted(() => {
     currentTime.value = new Date()
   }, 1000)
 
-  // Runtime fetch: the worker strips expired ephemera at the edge, so the
-  // served payload wins over the build-time embed (which is dev fallback only).
+  // Runtime fetch: the worker strips expired ephemera at the edge
+  // (in dev, VitePress serves cms/public/daemon-data.json directly).
   fetch('/daemon-data.json')
     .then(r => (r.ok ? r.json() : null))
-    .then(d => { if (d && !d.error) daemonData.value = d })
-    .catch(() => {})
+    .then(d => {
+      if (d && !d.error) {
+        daemonData.value = d
+        dataState.value = 'ready'
+      } else {
+        dataState.value = 'error'
+      }
+    })
+    .catch(() => { dataState.value = 'error' })
 
   fetch('/feed.json')
     .then(r => (r.ok ? r.json() : null))
@@ -322,6 +333,10 @@ function notExpired(item: any): boolean {
 }
 
 const heroCurrentState = computed(() => selectHeroCurrentState(daemonData.value, currentTime.value.getTime()))
+const visibleLocation = computed(() => {
+  const d = daemonData.value
+  return (notExpired(d.location_meta) ? d.current_location : d.location_default) || null
+})
 const visibleOfferings = computed(() => (daemonData.value.offerings ?? []).filter(notExpired))
 const visibleRequesting = computed(() => (daemonData.value.requesting ?? []).filter(notExpired))
 
@@ -379,27 +394,23 @@ function extractPredictionText(pred: string): string {
 
 function getConfidenceClass(pred: string): string {
   const conf = extractConfidence(pred).toLowerCase()
+  // Negations first: "uncertain" contains "certain", "improbable" contains "probable"
+  if (/\b(?:uncertain|improbable|unlikely)\b/.test(conf)) return 'confidence-low'
   if (conf.includes('certain')) return 'confidence-high'
   if (conf.includes('probable')) return 'confidence-mid'
   return 'confidence-low'
 }
 
+// "Name — description": split on an em/en dash or a spaced hyphen, so hyphenated names like "Foo-Bar" survive
 function extractProjectName(project: string): string {
-  const match = project.match(/^([^—–\-]+)/)
+  const match = project.match(/^(.+?)(?:\s*[—–]\s*|\s+-\s+)/)
   return match ? match[1].trim() : project
 }
 </script>
 
 <style>
-/* Butterick fonts — same families unsupervised-learning.com runs */
-@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_regular.woff2') format('woff2'); font-weight: normal; font-display: swap; }
-@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
-@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_italic.woff2') format('woff2'); font-style: italic; font-display: swap; }
-@font-face { font-family: 'concourse-t3'; src: url('/fonts/concourse_t3_regular-webfont.woff') format('woff'); font-display: swap; }
-@font-face { font-family: 'concourse-c3'; src: url('/fonts/concourse_c3_regular.woff') format('woff'); font-display: swap; }
-@font-face { font-family: 'advocate'; src: url('/fonts/advocate_34_narr_reg.woff2') format('woff2'); font-display: swap; }
-@font-face { font-family: 'triplicate'; src: url('/fonts/triplicate_b_code_regular.woff2') format('woff2'); font-display: swap; }
-@font-face { font-family: 'triplicate'; src: url('/fonts/triplicate_b_code_bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
+/* Butterick @font-face rules live in ../fonts.example.css — opt-in, so forks
+   without the commercial font files don't request 8 missing fonts per page load */
 
 /* UL palette — extracted from unsupervised-learning.com CSS variables 2026-07-21 */
 :root {
@@ -475,6 +486,12 @@ function extractProjectName(project: string): string {
 @keyframes drift1 { from { transform: translate(0, 0) scale(1); } to { transform: translate(-9vw, 6vh) scale(1.18); } }
 @keyframes drift2 { from { transform: translate(0, 0) scale(1.1); } to { transform: translate(7vw, 9vh) scale(0.92); } }
 @keyframes drift3 { from { transform: translate(0, 0) scale(0.95); } to { transform: translate(-6vw, -8vh) scale(1.15); } }
+
+.d-wait {
+  position: relative; z-index: 1;
+  font-family: 'triplicate', monospace; font-size: 0.72rem; letter-spacing: 0.14em;
+  color: var(--ul-text-3); padding: 40vh 1.5rem 0; text-align: center;
+}
 
 /* ═══ Command bar ═══ */
 .cmd {

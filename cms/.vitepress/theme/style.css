@@ -1,97 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Tokyo Night Storm Theme Colors */
+/* Global resets for dashboard-as-layout. The theme is fully custom (no VitePress
+   default theme), so the dashboard's own styles live in DaemonDashboard.vue. */
 :root {
-  --tokyo-bg-dark: #24283b;
   --tokyo-bg-darker: #1a1b26;
-  --tokyo-bg-deepest: #13141c;
-  --tokyo-bg-float: #1f2335;
-  --tokyo-bg-highlight: #292e42;
-  --tokyo-bg-menu: #1a1b26;
-  --tokyo-bg-sidebar: #1f2335;
-  --tokyo-bg-statusline: #1a1b26;
   --tokyo-bg-visual: #3b4261;
-
   --tokyo-fg: #c0caf5;
-  --tokyo-fg-dark: #a9b1d6;
-  --tokyo-fg-gutter: #3b4261;
-  --tokyo-fg-idle: #565f89;
-  --tokyo-fg-sidebar: #a9b1d6;
-
-  --tokyo-black: #1a1b26;
-  --tokyo-blue: #7aa2f7;
-  --tokyo-blue1: #2ac3de;
-  --tokyo-cyan: #7dcfff;
-  --tokyo-green: #9ece6a;
-  --tokyo-green1: #73daca;
-  --tokyo-green2: #41a6b5;
-  --tokyo-magenta: #bb9af7;
-  --tokyo-magenta2: #ff007c;
-  --tokyo-orange: #ff9e64;
   --tokyo-purple: #9d7cd8;
-  --tokyo-red: #f7768e;
-  --tokyo-red1: #db4b4b;
-  --tokyo-teal: #1abc9c;
-  --tokyo-yellow: #e0af68;
-
-  --tokyo-border: #3b4261;
-  --tokyo-comment: #565f89;
 }
 
-/* Override VitePress defaults */
-:root {
-  --vp-c-bg: var(--tokyo-bg-deepest);
-  --vp-c-bg-soft: var(--tokyo-bg-dark);
-  --vp-c-bg-mute: var(--tokyo-bg-float);
-  --vp-c-bg-alt: var(--tokyo-bg-float);
-
-  --vp-c-text-1: var(--tokyo-fg);
-  --vp-c-text-2: var(--tokyo-fg-dark);
-  --vp-c-text-3: var(--tokyo-fg-idle);
-  --vp-c-text-4: var(--tokyo-comment);
-
-  --vp-c-brand: var(--tokyo-purple);
-  --vp-c-brand-light: var(--tokyo-magenta);
-  --vp-c-brand-dark: var(--tokyo-purple);
-
-  --vp-c-divider: var(--tokyo-border);
-  --vp-c-divider-light: var(--tokyo-bg-highlight);
-
-  --vp-sidebar-bg-color: var(--tokyo-bg-sidebar);
-  --vp-nav-bg-color: var(--tokyo-bg-dark);
-
-  --vp-code-bg: var(--tokyo-bg-float);
-  --vp-code-block-bg: var(--tokyo-bg-float);
-
-  --vp-c-green: var(--tokyo-green);
-  --vp-c-yellow: var(--tokyo-yellow);
-  --vp-c-red: var(--tokyo-red);
-  --vp-c-purple: var(--tokyo-purple);
-}
-
-.dark {
-  --vp-c-bg: var(--tokyo-bg-deepest);
-  --vp-c-bg-soft: var(--tokyo-bg-dark);
-  --vp-c-bg-mute: var(--tokyo-bg-float);
-  --vp-c-bg-alt: var(--tokyo-bg-float);
-}
-
-/* Global resets for dashboard-as-layout */
 html, body {
   background: #13141c;
   margin: 0;
   padding: 0;
-}
-
-/* Hide VitePress default layout chrome */
-.VPNav,
-.VPSidebar,
-.VPFooter,
-.VPContent > .VPDoc,
-.VPLocalNav {
-  display: none !important;
 }
 
 /* Scrollbar styling */

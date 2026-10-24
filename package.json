@@ -6,18 +6,16 @@
   "scripts": {
     "dev": "vitepress dev cms",
     "build": "vitepress build cms",
-    "preview": "vitepress preview cms"
+    "preview": "vitepress preview cms",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260721.1",
-    "@tailwindcss/postcss": "^4.1.12",
-    "@tailwindcss/typography": "^0.5.16",
-    "@types/bun": "latest",
-    "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.12",
+    "@types/bun": "^1.2.20",
     "vitepress": "^1.6.4",
-    "vue": "^3.5.19"
+    "vue": "^3.5.19",
+    "wrangler": "^4.152.0"
   },
   "peerDependencies": {
     "typescript": "^5"

@@ -35,3 +35,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Personal daemon data (injected at build time from private repo)
 cms/public/daemon-data.json
+
+# VitePress dev/build cache
+cms/.vitepress/cache

@@ -11,18 +11,19 @@
  *      now_meta.expires; offerings/requesting items with temporal language
  *      require `expires`; nothing already-expired ships (strip it instead).
  *   2. Location granularity — no street addresses, ZIP codes, coordinates,
- *      or home-area strings anywhere in the payload; a non-default
- *      current_location requires location_meta.expires.
+ *      or home-area strings in ANY string anywhere in the payload; a
+ *      current_location other than location_default (or with no default
+ *      at all) requires location_meta.expires.
  *   3. Real-time presence — "tonight / right now / I'm at" phrasing in
  *      status, now, location, or offerings requires an explicit
  *      realtime_approved: true on that item (deliberate, per-item opt-in).
  *   4. Credential patterns — API keys/tokens never ship.
  *   5. Feed sources — https public URLs only (no localhost / RFC1918).
  *
- * Usage:
- *   bun Tools/DeployGate.ts                    # gate ./daemon-data.json
- *   bun Tools/DeployGate.ts --fixture <file>   # gate an alternate file (tests)
- *   bun Tools/DeployGate.ts --check            # same checks, softer exit label
+ * Usage (from your instance dir, next to daemon-data.json):
+ *   bun DeployGate.ts                    # gate ./daemon-data.json
+ *   bun DeployGate.ts --fixture <file>   # gate an alternate file (tests)
+ *   bun DeployGate.ts --check            # same checks, softer exit label
  */
 
 import { readFileSync } from "fs";
@@ -31,8 +32,13 @@ import { fileURLToPath } from "url";
 
 // ─── Deterministic rule patterns ───
 
-const STREET_ADDRESS = /\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Ct|Court|Way|Pl|Place|Ter|Terrace)\b\.?/;
-const CA_ZIP = /\b9[0-6]\d{3}(?:-\d{4})?\b/;
+const STREET_ADDRESS = [
+  /\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Ct|Court|Way|Pl|Place|Ter|Terrace)\b\.?/,
+  // Lowercase form ("123 main st") — abbreviated suffixes only, so prose like "3 days on the road" passes
+  /\b\d{1,5}\s+(?:[a-z]+\s+){1,3}(?:st|ave|rd|blvd|dr|ln|ct|pl|ter)\b\.?/i,
+];
+// Any US ZIP(+4). Skips money and decimals ("$10000", "1.50000"); not applied to URLs, whose numeric IDs would false-positive.
+const US_ZIP = /(?<![\d$.,])\b\d{5}(?:-\d{4})?\b(?![.,]\d)/;
 const COORDINATES = /-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}/;
 // Home-area strings — put YOUR street/neighborhood/home-city here (this file lives in your PRIVATE instance repo).
 const HOME_AREA = /\b(?:YOUR_STREET_NAME|YOUR_HOME_CITY)\b/i; // EDIT: your street/neighborhood/city strings
@@ -65,6 +71,16 @@ function validExpiry(expires: unknown): boolean {
   return typeof expires === "string" && !Number.isNaN(Date.parse(expires));
 }
 
+/** Every string in the payload with a readable path, e.g. ["resume[0].summary", "..."]. */
+function strings(value: unknown, path: string, out: Array<[string, string]> = []): Array<[string, string]> {
+  if (typeof value === "string") out.push([path, value]);
+  else if (Array.isArray(value)) value.forEach((x, i) => strings(x, `${path}[${i}]`, out));
+  else if (value && typeof value === "object") {
+    for (const [k, x] of Object.entries(value)) strings(x, path ? `${path}.${k}` : k, out);
+  }
+  return out;
+}
+
 export function gate(data: Record<string, any>, nowMs = Date.now()): Violation[] {
   const v: Violation[] = [];
   const push = (rule: string, where: string, detail: string) => v.push({ rule, where, detail });
@@ -88,29 +104,38 @@ export function gate(data: Record<string, any>, nowMs = Date.now()): Violation[]
     }
   }
 
-  // 2 + 3. Location granularity and real-time presence — walk every string
-  const realtimeApproved = (holder: any) => holder?.realtime_approved === true;
-  const scanText = (text: string, where: string, holder: any) => {
-    if (STREET_ADDRESS.test(text)) push("location", where, `street address pattern: "${text.match(STREET_ADDRESS)?.[0]}"`);
-    if (CA_ZIP.test(text)) push("location", where, `ZIP code pattern: "${text.match(CA_ZIP)?.[0]}"`);
+  // Location TTL — with no location_default there is nothing to fall back to, so any location must expire
+  if (typeof data.current_location === "string" && data.current_location !== data.location_default) {
+    if (!validExpiry(data.location_meta?.expires)) {
+      push("ttl", "current_location", data.location_default
+        ? "non-default location requires location_meta.expires"
+        : "location without a location_default requires location_meta.expires (or set location_default to it if it's permanent)");
+    } else if (expired(data.location_meta.expires, nowMs)) {
+      push("ttl", "current_location", `location expired ${data.location_meta.expires} — remove or refresh it`);
+    }
+  }
+
+  // 2. Location granularity — every string in the payload, not just the location fields
+  for (const [where, text] of strings(data, "")) {
+    const street = STREET_ADDRESS.map((p) => text.match(p)?.[0]).find(Boolean);
+    if (street) push("location", where, `street address pattern: "${street}"`);
+    if (!/^https?:\/\//.test(text) && US_ZIP.test(text)) push("location", where, `ZIP code pattern: "${text.match(US_ZIP)?.[0]}"`);
     if (COORDINATES.test(text)) push("location", where, "coordinate pattern");
     if (HOME_AREA.test(text)) push("location", where, `home-area string: "${text.match(HOME_AREA)?.[0]}"`);
-    if (REALTIME.test(text) && !realtimeApproved(holder)) {
+  }
+
+  // 3. Real-time presence — opt-in per item
+  const scanRealtime = (text: string, where: string, holder: any) => {
+    if (REALTIME.test(text) && holder?.realtime_approved !== true) {
       push("realtime", where, `real-time presence phrasing ("${text.match(REALTIME)?.[0]}") without realtime_approved: true`);
     }
   };
-
-  if (typeof data.current_location === "string") {
-    scanText(data.current_location, "current_location", data.location_meta);
-    if (data.location_default && data.current_location !== data.location_default && !validExpiry(data.location_meta?.expires)) {
-      push("ttl", "current_location", "non-default location requires location_meta.expires");
-    }
-  }
-  if (data.status) scanText(`${data.status.headline ?? ""} ${data.status.detail ?? ""}`, "status", data.status);
-  if (typeof data.now === "string") scanText(data.now, "now", data.now_meta);
+  if (typeof data.current_location === "string") scanRealtime(data.current_location, "current_location", data.location_meta);
+  if (data.status) scanRealtime(`${data.status.headline ?? ""} ${data.status.detail ?? ""}`, "status", data.status);
+  if (typeof data.now === "string") scanRealtime(data.now, "now", data.now_meta);
   for (const key of ["offerings", "requesting"]) {
     for (const [i, item] of (data[key] ?? []).entries()) {
-      scanText(`${item.title ?? ""} ${item.description ?? ""}`, `${key}[${i}]`, item);
+      scanRealtime(`${item.title ?? ""} ${item.description ?? ""}`, `${key}[${i}]`, item);
     }
   }
 
@@ -139,7 +164,9 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const fixtureIdx = args.indexOf("--fixture");
   const here = dirname(fileURLToPath(import.meta.url));
-  const file = fixtureIdx !== -1 && args[fixtureIdx + 1] ? args[fixtureIdx + 1] : join(here, "..", "daemon-data.json");
+  const fixture = fixtureIdx !== -1 ? args[fixtureIdx + 1] : undefined;
+  // DeployGate.ts sits next to daemon-data.json in the instance dir (see deploy.sh)
+  const file = fixture ?? join(here, "daemon-data.json");
 
   const data = JSON.parse(readFileSync(file, "utf-8"));
   const violations = gate(data);

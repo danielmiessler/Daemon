@@ -73,13 +73,13 @@ Configure in `daemon-data.json` → `feeds`:
 
 ## Ephemera and the safety gate
 
-Anything time-bound carries an ISO `expires` field: `status`, `now` (via `now_meta`), offerings with temporal language, and any non-default `current_location`. Three layers enforce it: `DeployGate.ts` blocks a deploy of stale/ungated data, the Worker strips expired items at serve time, and the page hides them client-side.
+Anything time-bound carries an ISO `expires` field: `status`, `now` (via `now_meta`), offerings with temporal language, and any `current_location` that differs from `location_default` (with no `location_default` set, every location needs one — set `location_default` to a permanent coarse location like a region). The page renders only what the Worker serves, so nothing time-bound is baked into the static HTML. Three layers enforce it: `DeployGate.ts` blocks a deploy of stale/ungated data, the Worker strips expired items at serve time, and the page hides them client-side.
 
-The gate also refuses to ship street addresses, ZIP codes, coordinates, your configured home-area strings, credentials, and real-time presence phrasing ("tonight", "I'm at") unless the item explicitly sets `realtime_approved: true` — for events where you *want* to be findable.
+The gate also refuses to ship street addresses, US ZIP codes, coordinates, or your configured home-area strings anywhere in the file (any field, not just location), plus credentials and real-time presence phrasing ("tonight", "I'm at") unless the item explicitly sets `realtime_approved: true` — for events where you *want* to be findable.
 
 ## Fonts
 
-The design references the Butterick typefaces (Advocate, Concourse, Valkyrie, Triplicate). Those are commercial fonts and are **not included** — buy them at [practicaltypography.com](https://practicaltypography.com), drop the woff files in `cms/public/fonts/`, or swap the `@font-face` blocks in `DaemonDashboard.vue` for free alternatives (JetBrains Mono for the mono roles, Fraunces or Newsreader for body). The CSS falls back gracefully.
+The design references the Butterick typefaces (Advocate, Concourse, Valkyrie, Triplicate). Those are commercial fonts and are **not included** — buy them at [practicaltypography.com](https://practicaltypography.com), drop the woff files in `cms/public/fonts/`, and copy `cms/.vitepress/theme/fonts.example.css` to `fonts.css` in the same folder to turn them on. Or put `@font-face` rules for free alternatives in that `fonts.css` under the same family names (JetBrains Mono for the mono roles, Fraunces or Newsreader for body). Without a `fonts.css`, no font files are requested and the CSS falls back to system fonts.
 
 ## Local development
 
@@ -89,3 +89,8 @@ bun run dev
 ```
 
 (The gitignore keeps `cms/public/daemon-data.json` out of the repo.)
+
+```bash
+bun test            # gate, worker, and hero-state tests
+bun run typecheck
+```

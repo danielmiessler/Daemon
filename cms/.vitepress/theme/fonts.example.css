@@ -1,0 +1,11 @@
+/* Butterick fonts — same families unsupervised-learning.com runs.
+   Opt-in: put the woff/woff2 files in cms/public/fonts/, then copy this file to
+   fonts.css next to it. theme/index.ts loads fonts.css only if it exists. */
+@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_regular.woff2') format('woff2'); font-weight: normal; font-display: swap; }
+@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
+@font-face { font-family: 'valkyrie'; src: url('/fonts/valkyrie_a_italic.woff2') format('woff2'); font-style: italic; font-display: swap; }
+@font-face { font-family: 'concourse-t3'; src: url('/fonts/concourse_t3_regular-webfont.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'concourse-c3'; src: url('/fonts/concourse_c3_regular.woff') format('woff'); font-display: swap; }
+@font-face { font-family: 'advocate'; src: url('/fonts/advocate_34_narr_reg.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'triplicate'; src: url('/fonts/triplicate_b_code_regular.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'triplicate'; src: url('/fonts/triplicate_b_code_bold.woff2') format('woff2'); font-weight: bold; font-display: swap; }
