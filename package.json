@@ -21,5 +21,10 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "overrides": {
+    "vitepress": {
+      "vite": "^6.4.6"
+    }
   }
 }
