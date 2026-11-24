@@ -89,12 +89,30 @@
           <div class="panel-head">
             <span class="panel-idx">03</span>
             <h2 class="panel-label">TELOS</h2>
+            <span class="telos-info">
+              <button class="telos-info-btn" type="button" aria-label="What is TELOS?" aria-describedby="telos-help">ⓘ</button>
+              <span class="telos-info-pop" role="tooltip" id="telos-help">
+                <span class="tip-head">TELOS <em>· purpose / end goal</em></span>
+                <span class="tip-body">A machine-readable statement of purpose, from Daniel Miessler’s TELOS framework.</span>
+                <span class="tip-legend">
+                  <span class="tip-code"><b>P</b> Problem</span>
+                  <span class="tip-code"><b>M</b> Mission</span>
+                  <span class="tip-code"><b>N</b> Narrative</span>
+                  <span class="tip-code"><b>G</b> Goal</span>
+                  <span class="tip-code"><b>C</b> Challenge</span>
+                  <span class="tip-code"><b>I</b> Idea</span>
+                  <span class="tip-code"><b>K</b> Metric / KPI</span>
+                </span>
+                <span class="tip-note">Numbers are stable IDs, not a ranking — e.g. M1 answers P1.</span>
+                <a class="tip-link" href="https://github.com/danielmiessler/Telos" target="_blank" rel="noopener">Open the TELOS framework →</a>
+              </span>
+            </span>
             <span class="panel-meta">{{ daemonData.telos?.length || 0 }}</span>
           </div>
           <div class="telos-list">
             <div v-for="(item, i) in daemonData.telos" :key="i" class="telos-row">
-              <span class="telos-id">{{ extractItemId(item) }}</span>
-              <span class="telos-text">{{ extractItemText(item) }}</span>
+              <span class="telos-id" :title="telosCodeLabel(item)" :aria-label="telosAriaLabel(item)">{{ extractTelosId(item) }}</span>
+              <span class="telos-text">{{ extractTelosText(item) }}</span>
             </div>
           </div>
         </section>
@@ -268,6 +286,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import daemonDataJson from '../../../public/daemon-data.json'
 import { selectHeroCurrentState } from '../currentState'
+import { extractTelosId, extractTelosText, telosCodeLabel, telosAriaLabel } from '../telosCodes'
 
 const currentTime = ref(new Date())
 const daemonData = ref<any>(daemonDataJson)
@@ -359,14 +378,7 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-function extractItemId(item: string): string {
-  const match = item.match(/^([PMG]\d+)/)
-  return match ? match[1] : '---'
-}
 
-function extractItemText(item: string): string {
-  return item.replace(/^[PMG]\d+:\s*/, '')
-}
 
 function extractConfidence(pred: string): string {
   const match = pred.match(/\(([^)]+)\)\s*$/)
@@ -631,6 +643,21 @@ function extractProjectName(project: string): string {
   color: var(--ul-text); flex: 1;
 }
 .panel-meta { font-family: 'triplicate', monospace; font-size: 0.62rem; color: var(--ul-text-3); }
+.telos-info { position: relative; display: inline-flex; }
+.telos-info-btn { font-family: 'triplicate', monospace; font-size: 0.7rem; line-height: 1; color: var(--ul-text-3); background: none; border: none; padding: 0; margin: 0 0.2rem; cursor: help; transition: color .15s; }
+.telos-info-btn:hover, .telos-info:focus-within .telos-info-btn { color: var(--ul-brand-light); }
+.telos-info-pop { position: absolute; top: calc(100% + 9px); left: 0; z-index: 40; width: min(320px, 78vw); display: flex; flex-direction: column; gap: 0.5rem; padding: 0.85rem 0.95rem; background: var(--ul-bg-3); border: 1px solid var(--ul-border-3); box-shadow: 0 12px 34px #00000080, 0 0 0 1px var(--ul-brand-glow); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease; text-align: left; max-height: min(68vh, 460px); overflow-y: auto; }
+.telos-info:hover .telos-info-pop, .telos-info:focus-within .telos-info-pop { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); }
+.telos-info-pop::before { content: ''; position: absolute; bottom: 100%; left: 12px; border: 6px solid transparent; border-bottom-color: var(--ul-bg-3); }
+.tip-head { font-family: 'triplicate', monospace; font-size: 0.72rem; letter-spacing: 0.08em; color: var(--ul-text); text-transform: uppercase; }
+.tip-head em { color: var(--ul-text-3); font-style: normal; text-transform: none; letter-spacing: 0; }
+.tip-body { font-size: 0.8rem; line-height: 1.5; color: var(--ul-text-2); }
+.tip-note { font-size: 0.72rem; line-height: 1.45; color: var(--ul-text-3); font-style: italic; }
+.tip-legend { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.45rem 0; border-top: 1px solid var(--ul-border); border-bottom: 1px solid var(--ul-border); }
+.tip-code { font-size: 0.78rem; color: var(--ul-text-2); display: flex; gap: 0.55rem; align-items: baseline; }
+.tip-code b { font-family: 'triplicate', monospace; color: var(--ul-brand-light); min-width: 1.1em; }
+.tip-link { font-family: 'triplicate', monospace; font-size: 0.72rem; color: var(--ul-brand-light); text-decoration: none; align-self: flex-start; }
+.tip-link:hover { text-decoration: underline; }
 
 /* Boot cascade */
 .boot { animation: boot 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i) * 70ms); }
